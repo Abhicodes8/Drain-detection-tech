@@ -1,7 +1,4 @@
 export type DataSource = 'sensor' | 'simulation';
-// One completed drain (n = 1) or a group of drains over a time bucket. The server returns at most 160 points for any range.
-export type HistoryRange = '1d' | '1w' | '1m' | '3m' | '1y' | 'all';
-export interface HistoryPoint { t: string; avg_seconds: number; min_seconds: number; max_seconds: number; n: number }
 export type RecordType = 'calibration' | 'drainage' | 'monitoring';
 export interface DrainageCapture {capture_id:string;recording_id:string;from_reading_id:string;confirmed_at:string;tap_off_confirmed:true;clear_drain_confirmed:true}
 export interface DrainageBand {from_depth_mm:number;to_depth_mm:number;duration_seconds:number}
@@ -41,7 +38,6 @@ export class DrainApi {
   }
   register(device_id: string, name: string) { return this.request<{device_id: string}>('/devices', 'POST', {device_id, name}); }
   devices(signal?: AbortSignal) { return this.request<{ devices: { device_id: string; name: string }[] }>('/devices', 'GET', undefined, signal); }
-  history(fixture: string, source: DataSource, range: HistoryRange, signal?: AbortSignal) { return this.request<{ range: HistoryRange; points: HistoryPoint[] }>(`/history?fixture_id=${encodeURIComponent(fixture)}&data_source=${source}&range=${range}`, 'GET', undefined, signal); }
   recordSummaries(source: DataSource, signal?: AbortSignal) { return this.request<{ records: RecordSummary[] }>(`/records?data_source=${source}&limit=200`, 'GET', undefined, signal); }
   createDeviceKey(id: string) { return this.request<{device_id: string; key: string}>(`/devices/${encodeURIComponent(id)}/keys`, 'POST', {}); }
   calibrationRecords(fixture:string,source:DataSource,signal?:AbortSignal){return this.request<{records:RecordSummary[]}>(`/records?fixture_id=${encodeURIComponent(fixture)}&data_source=${source}&record_type=calibration&recording_status=finished&limit=200`,'GET',undefined,signal);}

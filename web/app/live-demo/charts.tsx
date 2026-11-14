@@ -1,5 +1,4 @@
-import { useState } from 'react';
-import type { HistoryPoint, Measurement, RecordSummary, RecordView, WaterLevelPoint } from '../../lib/api';
+import type { Measurement, RecordSummary, RecordView, WaterLevelPoint } from '../../lib/api';
 import { compactTimeline, completedDrains, expandDrainCycles } from '../../lib/chart-data';
 import styles from './page.module.css';
 
@@ -61,39 +60,6 @@ export function RawDistanceChart({ readings, startAt }: { readings: Measurement[
 
 export function DrainForecastChart({ view }: { view: RecordView | null }) {
   return <SensorPlot title="Estimated seconds left to drain" unit="s" labels={['Backend estimate']} points={(view?.computed.timeline ?? []).map(p => ({ time: p.elapsed_seconds, a: p.seconds_remaining }))} />;
-}
-
-// Apple Stocks style trend: hover or drag to read any point. Each point is one completed drain, or the min/avg/max of
-// the drains in a time bucket when there are many, so the chart (and its data) stays small over any range.
-export function TrendChart({ points, threshold, longRange }: { points: HistoryPoint[]; threshold: number | null; longRange: boolean }) {
-  const [hover, setHover] = useState<number | null>(null);
-  const times = points.map(p => Date.parse(p.t)), lo = times[0], span = Math.max(1, times.at(-1)! - lo);
-  const maxY = Math.max(10, threshold ?? 0, ...points.map(p => p.max_seconds)) * 1.15;
-  const x = (t: number) => points.length === 1 ? 340 : 20 + (t - lo) / span * 640, y = (v: number) => 180 - v / maxY * 160;
-  const grouped = points.some(p => p.n > 1);
-  const when = (iso: string) => new Date(iso).toLocaleString(undefined, longRange ? { month: 'short', day: 'numeric', year: 'numeric' } : { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-  const shown = points[hover ?? points.length - 1];
-  const quarter = Math.max(1, Math.floor(points.length / 4)), mean = (list: HistoryPoint[]) => list.reduce((a, p) => a + p.avg_seconds * p.n, 0) / list.reduce((a, p) => a + p.n, 0);
-  const total = points.reduce((a, p) => a + p.n, 0), change = total >= 8 && points.length >= 4 ? mean(points.slice(-quarter)) / mean(points.slice(0, quarter)) - 1 : null;
-  const onMove = (e: React.PointerEvent<SVGSVGElement>) => {
-    const box = e.currentTarget.getBoundingClientRect(), px = (e.clientX - box.left) / box.width * 680;
-    let best = 0, distance = Infinity;
-    points.forEach((p, i) => { const d = Math.abs(x(Date.parse(p.t)) - px); if (d < distance) { distance = d; best = i; } });
-    setHover(best);
-  };
-  return <div className={styles.historyChart}>
-    <svg viewBox="0 0 680 220" role="img" aria-label={`Drain time trend, ${total} drains`} onPointerMove={onMove} onPointerLeave={() => setHover(null)} style={{ touchAction: 'pan-y' }}>
-      {[0, 1, 2, 3, 4].map(i => <g key={i}><line x1="20" x2="660" y1={20 + i * 40} y2={20 + i * 40} stroke="#a8d3f0" /><text x="0" y={24 + i * 40} fontSize="10">{Math.round(maxY * (1 - i / 4))}</text></g>)}
-      {threshold != null && <line x1="20" x2="660" y1={y(threshold)} y2={y(threshold)} stroke="#6baae0" strokeDasharray="5 4" />}
-      {grouped && <polygon fill="#cfe6f6" opacity=".9" points={[...points.map(p => `${x(Date.parse(p.t))},${y(p.max_seconds)}`), ...[...points].reverse().map(p => `${x(Date.parse(p.t))},${y(p.min_seconds)}`)].join(' ')} />}
-      <polyline points={points.map(p => `${x(Date.parse(p.t))},${y(p.avg_seconds)}`).join(' ')} fill="none" stroke="#2563ae" strokeWidth="3" />
-      {!grouped && points.map(p => <circle key={p.t} cx={x(Date.parse(p.t))} cy={y(p.avg_seconds)} r="3.5" fill="#2563ae" />)}
-      {hover != null && <g><line x1={x(Date.parse(shown.t))} x2={x(Date.parse(shown.t))} y1="20" y2="180" stroke="#2563ae" strokeDasharray="3 3" /><circle cx={x(Date.parse(shown.t))} cy={y(shown.avg_seconds)} r="5" fill="#fbf8f0" stroke="#2563ae" strokeWidth="2.5" /></g>}
-      <text x="20" y="207" fontSize="10">{when(points[0].t)}</text><text x="660" y="207" fontSize="10" textAnchor="end">{when(points.at(-1)!.t)}</text>
-    </svg>
-    <p aria-live="polite"><strong>{shown.avg_seconds.toFixed(1)} s</strong> {shown.n > 1 ? `average of ${shown.n} drains (${shown.min_seconds.toFixed(1)}–${shown.max_seconds.toFixed(1)} s)` : 'drain'} · {when(shown.t)}</p>
-    {change !== null && <p>{Math.abs(change) < 0.05 ? 'Drain time is steady over this range.' : `Drains are ${Math.round(Math.abs(change) * 100)}% ${change > 0 ? 'slower' : 'faster'} than at the start of this range.`}</p>}
-  </div>;
 }
 
 export function HistoryChart({ records, range, onSelect, presentation='bars' }: { records: RecordSummary[]; range: number; onSelect?: (id: string) => void; presentation?:'bars'|'line' }) {

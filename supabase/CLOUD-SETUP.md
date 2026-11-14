@@ -164,8 +164,7 @@ the server finishes it and continues in a fresh monitoring recording for the sam
 board's own recording ID, so no reflash is needed and nothing is deleted. Apply `202611140003_drain_history.sql`:
 each completed drain is also saved once as a small row (about 100 bytes), and `GET /api/v1/history` returns at most
 160 points for 1D, 1W, 1M, 3M, 1Y or All (the drains themselves when there are few, otherwise min/average/max per
-time bucket). The dashboard's trend chart uses it, with hover to read any point, and falls back to the old
-recording-based chart on backends without it. Drains finished before this migration are not backfilled.
+time bucket). No screen uses it yet; a chart for it should be added only as the design specifies. Drains finished before this migration are not backfilled.
 
 Known limits: the board makes one HTTPS
 request every 2 s (about 1.3 million function invocations per unit per month).
