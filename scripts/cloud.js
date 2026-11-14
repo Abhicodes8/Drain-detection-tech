@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { configFromEnv } from '../backend/src/config.js';
 import { SupabaseAccessStore } from '../supabase/functions/_shared/access-storage.js';
 import { hashDeviceKey } from '../backend/src/auth.js';
-import { api, settings, firmwareHeader, prepareRecord, checkTables, findPreviousRecording, findAuthUser, grantOwner } from '../device/wifi/testing.js';
+import { api, settings, firmwareHeader, prepareRecord, checkTables, findPreviousRecording, parseConfigureArgs } from '../device/wifi/testing.js';
 import { selectTrustedRoot } from './cloud-tls.js';
 
 const root = new URL('../', import.meta.url), command = process.argv[2];
@@ -81,10 +81,8 @@ try {
       if(!wifiSource) throw Error('Run wifi:init and fill device/wifi/.env first.');
       const wifi=parseEnv(wifiSource);
       const state=JSON.parse(await text('device/wifi/data/state.json')||'{"fixtures":{}}');
-      // Usage: cloud:configure [unit-id] [--owner-email name@example.com]
-      const args=process.argv.slice(3),ownerAt=args.indexOf('--owner-email'),ownerEmail=ownerAt>=0?args[ownerAt+1]:null;
-      if(ownerAt>=0&&(!ownerEmail||ownerEmail.startsWith('--'))) throw Error('Give the customer account e-mail after --owner-email.');
-      const fixture=args.find((a,i)=>!a.startsWith('--')&&i!==ownerAt+1)||state.fixtures[state.current]?.fixture||'friend-sink';
+      // Usage: cloud:configure [unit-id]
+      const {fixture}=parseConfigureArgs(process.argv.slice(3),state.fixtures[state.current]?.fixture||'friend-sink');
       const oldSlot=Object.keys(state.fixtures).findLast(key=>state.fixtures[key].fixture===fixture && state.fixtures[key].recordId);
       let old=oldSlot ? state.fixtures[oldSlot]:null,oldRemote=null;
       if(old) {
@@ -109,13 +107,6 @@ try {
         const result=await prepareRecord({config:cloudConfig,token:secrets.DRAIN_ADMIN_TOKEN,fixture,type:'monitoring',previous:{saveKey:async saved=>{
           state.fixtures[`${base}|${fixture}`]={fixture,key:saved};await privateFile('device/wifi/data/state.json',JSON.stringify(state,null,2)+'\n');
         }}});record=result.record;key=result.key;
-      }
-      if(ownerEmail) {
-        // Link this installer-provisioned unit to the customer's account so they can manage it in the app.
-        const user=await findAuthUser(ownerEmail,{supabaseUrl:config.supabaseUrl,key:config.supabaseKey});
-        if(!user) throw Error('No account uses that e-mail yet. Ask the customer to sign up first, then run this again.');
-        const accessStore=new SupabaseAccessStore(config.supabaseUrl,config.supabaseKey);
-        console.log(await grantOwner(accessStore,fixture,user.id)?`Linked ${fixture} to ${ownerEmail} as owner.`:`${ownerEmail} already owns ${fixture}.`);
       }
       // Preserve existing Wi-Fi password and sensor mode while changing only routing.
       let updated=wifiSource;

@@ -112,11 +112,10 @@ US-100 is not waterproof. Fill only to the app's indicator (at least 40 mm, safe
    on the sensor. Units created from the command line have no owner and cannot be claimed in the app
    (the app then says the unit is registered to another account).
 2. **Provision the board.** `npm run cloud:configure -- DR-4851` uses the unit you just created, issues the
-   sensor key, creates the monitoring recording and writes the ignored `secrets.h`. For a unit set up by an
-   installer first, link it to the customer at the same time:
-   `npm run cloud:configure -- DR-4851 --owner-email customer@example.com` (the customer must have signed
-   up). If the saved recording in `device/wifi/data/state.json` no longer exists, for example after a
-   migration, it creates a new one instead of failing.
+   sensor key, creates the monitoring recording and writes the ignored `secrets.h`. Linking a command-line unit
+   to a customer account belongs with sign-in and is not done by this command. If the saved recording in
+   `device/wifi/data/state.json` no longer exists, for example after a migration, it creates a new one instead of
+   failing.
 3. **Flash.** Arduino IDE, **Arduino Nano ESP32**, **With FAT partition (default)**, Upload, Serial Monitor
    115200. Wait for "Saved measurement in Supabase". If it stops with "Pending point belongs to another
    destination or is damaged" or "Upload stopped (HTTP 4xx)" the board holds a reading from older firmware:
