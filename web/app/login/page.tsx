@@ -1,16 +1,16 @@
 import type { Metadata } from 'next';
-import Image from 'next/image';
 import AccountPanel from '../../components/account-panel';
+import DesignAsset from '../../components/design-asset';
 import styles from './page.module.css';
 
-export const metadata: Metadata = { title: 'Sign in | Smart Housing' };
+export const metadata: Metadata = { title: 'Sign in | Synk' };
 
 export default function LoginPage() {
   return <main className={styles.page}>
     <header className={styles.header}>
-      <a className={styles.brand} href="/">
-        <Image src="/images/marketing/logo.png" alt="" width={28} height={28} />
-        Company Name
+      <a className={styles.brand} href="/" aria-label="Synk home">
+        <DesignAsset file="10c6a.svg" />
+        Synk
       </a>
       <a className={styles.back} href="/">← Back to home</a>
     </header>
