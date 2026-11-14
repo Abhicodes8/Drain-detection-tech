@@ -199,6 +199,8 @@ export async function statusContext(store, rows) {
   let cache=contextCache.get(store);if(!cache){cache=new Map();contextCache.set(store,cache);}
   const groups=new Map();for(const row of rows)if(['drainage','monitoring'].includes(row.record_type))groups.set(`${row.fixture_id}\0${row.data_source}`,row);
   const context=await Promise.all([...groups].map(async([key,row])=>{
+    // A saved drainage profile replaces the learned baseline, so skip the history scan (and its reads) entirely.
+    const profiled=await sinkProfile(store,row);if(profiled&&row.calibration?.empty_distance_mm===profiled.empty)return[];
     const hit=cache.get(key);let training=hit&&hit.expires>Date.now()?hit.rows:null;
     if(!training){training=[];for(let offset=0;;offset+=20){const page=await store.list({fixture_id:row.fixture_id,data_source:row.data_source,schema_version:2},20,'asc',offset);training.push(...page);if(learnedBaseline(training).seconds!==null||page.length<20)break;}}
     const combined=[...new Map([...training,...rows.filter(r=>r.fixture_id===row.fixture_id&&r.data_source===row.data_source)].map(r=>[r.record_id,r])).values()];

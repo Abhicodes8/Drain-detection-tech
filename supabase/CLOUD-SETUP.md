@@ -142,6 +142,24 @@ distances. Per-sample flash writes are for bench tests; sustained deployment nee
 verification stays enabled. Reconfigure its CA if the service trust chain changes. Local Node SSE remains
 available; cloud uses the frontend's REST polling.
 
+## Egress
+
+Egress is the data Supabase sends out, not the data it stores, so nothing is deleted to keep it low. Every reading
+is kept, which is what lets the dashboard show the long-term trend in drain speed. Egress was dominated by
+viewers re-downloading a whole recording each time it changed (up to about 700 KB per read).
+
+Apply `202611140002_drain_record_delta.sql`. A worker that already holds a copy of a recording then fetches only
+the readings newer than its last one, checks the reading count, and falls back to a full read if anything differs
+or the function is missing. Reads now cost a few KB however long the recording is, and the sink-profile scan is
+skipped for sinks that already have a profile.
+
+Measure it with `HOURS=1 UNITS=1 npm run egress:simulate` (a local model, no network; `NO_DELTA=1` shows the cost
+without incremental reads). One unit with a live view and a fleet dashboard on separate cold workers, per half
+hour with all readings kept: about 235 MB without incremental reads, about 1.4 MB with them.
+
+Known limits: a recording still stops at 5000 readings (about 42 minutes at 500 ms), and the board makes one HTTPS
+request every 2 s (about 1.3 million function invocations per unit per month).
+
 ## Checks
 
 ```bash
