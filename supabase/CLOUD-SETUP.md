@@ -157,7 +157,17 @@ Measure it with `HOURS=1 UNITS=1 npm run egress:simulate` (a local model, no net
 without incremental reads). One unit with a live view and a fleet dashboard on separate cold workers, per half
 hour with all readings kept: about 235 MB without incremental reads, about 1.4 MB with them.
 
-Known limits: a recording still stops at 5000 readings (about 42 minutes at 500 ms), and the board makes one HTTPS
+## Long history, rollover and the trend chart
+
+A monitoring recording holds 5000 readings (about 42 minutes at 500 ms). When the recording a board posts to is full,
+the server finishes it and continues in a fresh monitoring recording for the same unit. It acknowledges with the
+board's own recording ID, so no reflash is needed and nothing is deleted. Apply `202611140003_drain_history.sql`:
+each completed drain is also saved once as a small row (about 100 bytes), and `GET /api/v1/history` returns at most
+160 points for 1D, 1W, 1M, 3M, 1Y or All (the drains themselves when there are few, otherwise min/average/max per
+time bucket). The dashboard's trend chart uses it, with hover to read any point, and falls back to the old
+recording-based chart on backends without it. Drains finished before this migration are not backfilled.
+
+Known limits: the board makes one HTTPS
 request every 2 s (about 1.3 million function invocations per unit per month).
 
 ## Checks

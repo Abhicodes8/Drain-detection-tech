@@ -2,22 +2,26 @@
 
 import EmailSettings from '../../components/email-settings';
 import { useState } from 'react';
+import { useDrainHistory } from './use-history';
 import ProductHeader from '../../components/product-header';
 import OceanWaves from '../../components/ocean-waves';
 import DesignAsset from '../../components/design-asset';
-import type { DataSource } from '../../lib/api';
+import type { DataSource, HistoryRange } from '../../lib/api';
 import { useLiveRecording } from './use-live-recording';
-import { DrainForecastChart, HistoryChart, RawDistanceChart, WaterLevelChart } from './charts';
+import { DrainForecastChart, HistoryChart, RawDistanceChart, TrendChart, WaterLevelChart } from './charts';
 import styles from './page.module.css';
 
 
+const RANGES: [string, HistoryRange, number][] = [['1D', '1d', 1], ['1W', '1w', 7], ['1M', '1m', 30], ['3M', '3m', 90], ['1Y', '1y', 365], ['All', 'all', 3650]];
 const statusLabels = { learning: 'Empty baseline needed', unknown: 'Status unavailable', in_progress: 'Draining', normal: 'Normal', slow_drain: 'Slow drain', running_too_long: 'Running too long' };
 const date = (value: string) => new Date(value).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 
 export default function LiveView({ initialFixture = '', initialRecord = '', initialSource = 'sensor' }: { initialFixture?: string; initialRecord?: string; initialSource?: DataSource }) {
   const data = useLiveRecording(initialFixture, initialRecord, initialSource);
-  const [range, setRange] = useState(30);
+  const [rangeKey, setRangeKey] = useState<HistoryRange>('1m');
+  const history = useDrainHistory(data.fixture, data.source, rangeKey);
   const [query, setQuery] = useState('');
+  const rangeDays = rangeKey === 'all' ? 3650 : RANGES.find(r => r[1] === rangeKey)![2];
   const view = data.view;
   const fixtureName = data.fixtures.find(f => f.id === data.fixture)?.name || 'Live view';
   const recent = view?.record.measurements.at(-1);
@@ -84,9 +88,9 @@ export default function LiveView({ initialFixture = '', initialRecord = '', init
           </section>
 
           <section className={styles.card} aria-labelledby="history-title">
-            <div className={styles.cardHeader}><h2 id="history-title">Drain time, last {range} days</h2><div className={styles.range} role="group" aria-label="History range">{[7, 30, 90].map(days => <button key={days} aria-pressed={range === days} onClick={() => setRange(days)}>{days}d</button>)}</div></div>
-            <HistoryChart records={data.records} range={range} onSelect={data.setRecordId} presentation="line" />
-            <p className={styles.caption}>Completed recordings for this fixture and source. Includes server-measured cycles in monitoring windows and completed tests from the latest 200 recordings.</p>
+            <div className={styles.cardHeader}><h2 id="history-title">Drain time, {rangeKey === 'all' ? 'all time' : rangeKey === '1d' ? 'last 24 hours' : `last ${rangeDays} days`}</h2><div className={styles.range} role="group" aria-label="History range">{RANGES.map(([label, key]) => <button key={key} aria-pressed={rangeKey === key} onClick={() => setRangeKey(key)}>{label}</button>)}</div></div>
+            {history?.length ? <TrendChart points={history} threshold={data.records.find(r => r.drain_status)?.drain_status?.slow_threshold_seconds ?? null} longRange={rangeDays > 7 || rangeKey === 'all'} /> : <HistoryChart records={data.records} range={rangeDays} onSelect={data.setRecordId} presentation="line" />}
+            <p className={styles.caption}>Every completed drain for this unit; long ranges group drains into time buckets showing the average and the fastest and slowest. Hover or drag to read a point.</p>
           </section>
           <details className={styles.card}><summary>Drain-time forecast</summary><section aria-labelledby="forecast-title">
             <h2 id="forecast-title">Time left to drain</h2>

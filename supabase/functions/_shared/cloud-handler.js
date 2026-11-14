@@ -8,6 +8,7 @@ import { hashDeviceKey, newDeviceKey, supabaseUserVerifier } from './auth.js';
 import { SupabaseRecordStore } from './records-storage.js';
 import { SupabaseAccessStore } from './access-storage.js';
 import { validateRecordInput, validateMeasurements, appendMeasurements, analyzeDrainage, computedView, boundedRecordView, drainStatuses, statusContext, withDrainageProfile, drainCycleSummaries, fail } from './records-domain.js';
+import { appendTarget, saveNewDrainEvents, HISTORY_RANGES, HISTORY_POINTS } from './rollover.js';
 import { buildAlerts, summarizeAlerts, SEVERITIES } from './alerts.js';
 
 const equalToken = (a, b) => timingSafeEqual(Buffer.from(hashDeviceKey(a)), Buffer.from(hashDeviceKey(b)));
@@ -113,6 +114,15 @@ export function createCloudHandler(config, {
         const row = (await (store.headers?.bind(store) ?? store.list.bind(store))({fixture_id:who.deviceId,data_source:'sensor',recording_status:'recording'},1))[0];
         return json(200, {record:row ? {record_id:row.record_id,record_type:row.record_type,fixture_id:row.fixture_id} : null});
       }
+      if (path === '/api/v1/history' && request.method === 'GET') {
+        // Per-drain summaries only: at most HISTORY_POINTS rows however long the range, so cost never grows with history.
+        const fixture = deviceId(url.searchParams.get('fixture_id') ?? ''), source = url.searchParams.get('data_source') === 'simulation' ? 'simulation' : 'sensor', range = url.searchParams.get('range') ?? '1m';
+        if (!(range in HISTORY_RANGES)) fail('range must be 1d, 1w, 1m, 3m, 1y or all');
+        await access(who, fixture);
+        if (!store.drainHistory) throw new ApiError(404, 'history_unavailable', 'Drain history is not available on this backend');
+        const days = HISTORY_RANGES[range];
+        return json(200, { range, generated_at: new Date().toISOString(), points: await store.drainHistory(fixture, source, new Date(days ? Date.now() - days * 86400000 : 0).toISOString(), HISTORY_POINTS) });
+      }
       if (path === '/api/v1/devices') {
         if (who.deviceId) throw new ApiError(403, 'forbidden', 'Sensor keys cannot access the registry');
         if (request.method === 'GET') {
@@ -180,8 +190,12 @@ export function createCloudHandler(config, {
         if (action === 'measurements' && request.method === 'POST') {
           await access(who,row.fixture_id,false,true);
           if (who.deviceId && row.data_source !== 'sensor') throw new ApiError(403,'forbidden','Sensor keys cannot append simulation data');
-          const points = validateMeasurements(await readBody(request)); const result = await mutate(id, previous => appendMeasurements(previous,points));
-          return json(result.duplicate ? 200 : 201, {duplicate:result.duplicate,record_id:id,recording_status:result.record.recording_status,measurement_count:result.record.measurements.length,result:result.record.result,calibration:result.record.calibration});
+          const points = validateMeasurements(await readBody(request));
+          // A full monitoring recording continues in a new one; the acknowledgement keeps the board's own record_id.
+          const target = who.deviceId ? await appendTarget({store,row,mutate,incoming:points.length,clock}) : id; let before = null;
+          const result = await mutate(target, previous => { before = previous; return appendMeasurements(previous,points); });
+          await saveNewDrainEvents(store, before, result.record);
+          return json(result.duplicate ? 200 : 201, {...(target!==id?{continued_in:target}:{}),duplicate:result.duplicate,record_id:id,recording_status:result.record.recording_status,measurement_count:result.record.measurements.length,result:result.record.result,calibration:result.record.calibration});
         }
         if (action === 'finish' && request.method === 'POST') {
           await access(who,row.fixture_id,true);
