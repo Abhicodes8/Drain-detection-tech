@@ -6,10 +6,6 @@ import styles from './account-panel.module.css';
 
 type Mode = 'signup' | 'signin' | 'confirm' | 'forgot';
 
-function GoogleMark() {
-  return <svg aria-hidden="true" width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.5l6.7-6.7C35.6 2.4 30.1 0 24 0 14.6 0 6.5 5.4 2.6 13.2l7.8 6.1C12.3 13.4 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.5 5.8c4.4-4.1 7.1-10.1 7.1-17.5z"/><path fill="#FBBC05" d="M10.4 28.7a14.5 14.5 0 0 1 0-9.4l-7.8-6.1a24 24 0 0 0 0 21.6l7.8-6.1z"/><path fill="#34A853" d="M24 48c6.1 0 11.2-2 15-5.5l-7.5-5.8c-2.1 1.4-4.7 2.2-7.5 2.2-6.3 0-11.7-3.9-13.6-9.5l-7.8 6.1C6.5 42.6 14.6 48 24 48z"/></svg>;
-}
-
 export default function AccountPanel({recovery=false}:{recovery?:boolean}) {
   const session = useSession();
   const [mode, setMode] = useState<Mode>('signup');
@@ -82,21 +78,6 @@ export default function AccountPanel({recovery=false}:{recovery?:boolean}) {
         <button type="button" role="tab" aria-selected={mode === 'signup'} className={mode === 'signup' ? styles.tabActive : styles.tab} onClick={() => { clear(); setMode('signup'); }}>Create account</button>
         <button type="button" role="tab" aria-selected={mode === 'signin'} className={mode === 'signin' ? styles.tabActive : styles.tab} onClick={() => { clear(); setMode('signin'); }}>Log in</button>
       </div>
-
-      <button type="button" className={styles.google} disabled={busy} onClick={async () => {
-        clear(); setBusy(true);
-        try {
-          // Fail in place with a readable message while the provider is not enabled,
-          // instead of navigating to a bare error response.
-          const settings = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/auth/v1/settings`, { headers: { apikey: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? '' } }).then(r => r.json()).catch(() => null);
-          if (settings && settings.external?.google === false) { setError('Google sign-in is not enabled yet. Use email below, or enable the Google provider in Supabase.'); setBusy(false); return; }
-          const { error } = await auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin + '/login' } });
-          if (error) { setError(error.message); setBusy(false); }
-        }
-        catch { setError('Could not start Google sign-in. Try again.'); setBusy(false); }
-      }}><GoogleMark /> Continue with Google</button>
-
-      <div className={styles.divider} role="presentation"><span>or with email</span></div>
 
       {mode === 'signup' ? <form className={styles.form} onSubmit={async e => {
         e.preventDefault(); clear();
