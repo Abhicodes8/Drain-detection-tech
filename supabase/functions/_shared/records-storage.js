@@ -1,6 +1,6 @@
 import {publicSensorRecord} from './single-sensor-migration.js';
 import { ApiError } from './validation.js';
-import { INGEST, ordered } from './records-domain.js';
+import { ordered } from './records-domain.js';
 const filtersAllowed = new Set(['fixture_id', 'record_type', 'data_source', 'recording_status', 'calibration_present','schema_version']);
 const unavailable = () => new ApiError(503, 'storage_unavailable', 'Storage unavailable. Apply the single-sensor SQL migration (202611120001_single_sensor.sql) and check database access.');
 const conflict = () => new ApiError(409, 'record_conflict', 'Record ID already exists or a recording is already active for this fixture and source.');
@@ -61,8 +61,7 @@ export class SupabaseRecordStore {
     if (!d || !Array.isArray(d.tail)) return null;
     const known = new Map(cached.row.measurements.map(p => [p.reading_id, p]));
     for (const p of d.tail) known.set(p.reading_id, p);
-    let merged = ordered([...known.values()]);
-    if (cached.row.record_type === 'monitoring' && merged.length > INGEST.monitoringWindow) merged = merged.slice(-INGEST.monitoringWindow);
+    const merged = ordered([...known.values()]);
     if (merged.length !== d.total) return null;
     const row = { ...cached.row, calibration: d.calibration, result: d.result, recording_status: d.recording_status, measurements: merged };
     this.keep(header.record_id, d.revision, row);

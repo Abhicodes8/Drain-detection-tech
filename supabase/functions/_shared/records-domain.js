@@ -372,9 +372,7 @@ export function computedView(record, sample = null) {
   if (stale && sample === null && timeline.length) timeline.at(-1).seconds_remaining = null;
   const learning = record.record_type === 'calibration' ? learnCalibration(visible) : null;
   const latest = visible.at(-1);
-  // An idle monitored sink stores one reading per INGEST.idleKeepMs, so its silence between readings is normal.
-  const connectionLimit = record.record_type === 'monitoring' && record.calibration && latest && idleReading(latest, record.calibration) ? INGEST.idleKeepMs + 7000 : SETTINGS.maxGap;
-  const sensor_connection = !latest ? 'waiting' : latest.sensor.status !== 'ok' ? 'problem' : record.recording_status === 'recording' && (Date.now() - Date.parse(latest.timestamp) > connectionLimit || Date.parse(latest.timestamp) > Date.now()) ? 'stale' : 'connected';
+  const sensor_connection = !latest ? 'waiting' : latest.sensor.status !== 'ok' ? 'problem' : record.recording_status === 'recording' && (Date.now() - Date.parse(latest.timestamp) > SETTINGS.maxGap || Date.parse(latest.timestamp) > Date.now()) ? 'stale' : 'connected';
   return { drain_cycles: drainCycleSummaries(record), monitoring_limits: { slow_seconds: STATUS_SETTINGS.initialSlowSeconds, standing_water_seconds: STATUS_SETTINGS.initialTimeoutSeconds }, sensor_connection, setup_guidance: setupGuidance({...record, measurements:visible}), forecast: result, timeline, water_levels, sample_index: Math.max(0, position), sample_count: rows.length, first_measurement_at: first ?? null, elapsed_seconds: visible.length ? (Date.parse(visible.at(-1).timestamp) - Date.parse(first)) / 1000 : 0, stale, calibration_progress: learning?.progress ?? null, calibration_message: learning?.message ?? null };
 }
 // Applies points in order inside one atomic update. Points arriving after the
@@ -388,29 +386,12 @@ export function appendMeasurements(record, points) {
   }
   return { record: current, duplicate };
 }
-// Egress and record-size control for continuous monitoring. A sink that is just sitting there does not need every
-// reading: while idle keep one reading per idleKeepMs. During use, and for quietMs afterwards, keep every reading so
-// drain timing, setup checks and the shifted-level check always see dense data. Monitoring keeps a rolling window
-// instead of refusing readings when full, so a unit can run for months. Skipped readings are acknowledged normally.
-export const INGEST = Object.freeze({ idleBandMm: 8, quietMs: 30000, idleKeepMs: 8000, monitoringWindow: 2000 });
-const rawDepth = (p, c) => p.sensor?.status === 'ok' && p.sensor.distance_mm !== null ? c.empty_distance_mm - p.sensor.distance_mm : null;
-const idleReading = (p, c) => { const d = rawDepth(p, c); return d !== null && Math.abs(d) <= INGEST.idleBandMm; };
-function skipIdle(record, point) {
-  if (record.record_type !== 'monitoring' || !record.calibration || !record.measurements.length || !idleReading(point, record.calibration)) return false;
-  const t = Date.parse(point.timestamp), stored = record.measurements, last = Date.parse(stored.at(-1).timestamp);
-  if (t < last || t - last >= INGEST.idleKeepMs) return false;
-  for (let i = stored.length - 1; i >= 0 && t - Date.parse(stored[i].timestamp) <= INGEST.quietMs; i--) if (!idleReading(stored[i], record.calibration)) return false;
-  return true;
-}
 export function appendMeasurement(record, point) {
   const existing = record.measurements.find(p => p.reading_id === point.reading_id);
   if (existing) { if (!isDeepStrictEqual(existing, point)) fail('reading_id was reused with different measurements', 409, 'reading_conflict'); return { record, duplicate: true }; }
   if (record.recording_status !== 'recording') fail('Recording is finished; start a new record', 409, 'record_finished');
-  if (skipIdle(record, point)) return { record, duplicate: true, thinned: true };
-  if (record.measurements.length >= SETTINGS.maxMeasurements && record.record_type !== 'monitoring') fail('Recording reached 5000 samples; finish it and start another', 409, 'record_full');
-  let measurements = ordered([...record.measurements, point]);
-  if (record.record_type === 'monitoring' && measurements.length > INGEST.monitoringWindow) measurements = measurements.slice(-INGEST.monitoringWindow);
-  const next = { ...record, measurements };
+  if (record.measurements.length >= SETTINGS.maxMeasurements) fail('Recording reached 5000 samples; finish it and start another', 409, 'record_full');
+  const next = { ...record, measurements: ordered([...record.measurements, point]) };
   if (next.record_type === 'calibration') {
     const learned = learnCalibration(next.measurements);
     if (learned.calibration) { next.calibration = learned.calibration; next.recording_status = 'finished'; }

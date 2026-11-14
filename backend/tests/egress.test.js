@@ -1,51 +1,11 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {randomUUID} from 'node:crypto';import {isDeepStrictEqual} from 'node:util';
-import {appendMeasurements,monitoringEvents,INGEST,analyzeDrainage} from '../src/records-domain.js';
+import {appendMeasurements} from '../src/records-domain.js';
 import {SupabaseRecordStore} from '../src/records-storage.js';
-import {point,time,EMPTY,DRAIN_DEPTHS} from './helpers/drainage-fixtures.js';
+import {point,time,EMPTY} from './helpers/drainage-fixtures.js';
 
 const monitoring=(extra={})=>({record_id:randomUUID(),fixture_id:'sink',data_source:'sensor',record_type:'monitoring',recording_status:'recording',schema_version:2,calibration:{empty_distance_mm:EMPTY},measurements:[],result:null,created_at:new Date(time).toISOString(),...extra});
 const feed=(record,readings)=>{let current=record,kept=0;for(const p of readings){const r=appendMeasurements(current,[p]);if(r.record!==current)kept++;current=r.record;}return{record:current,kept};};
 const idle=(from,seconds,every=500)=>Array.from({length:Math.round(seconds*1000/every)},(_,i)=>point(from+i*every,((i*7)%5-2)*.5));
-
-test('an idle sink keeps one reading per 8 s, but use and the 30 s after it stay dense',()=>{
- let {record,kept}=feed(monitoring(),idle(time,120));
- assert.ok(record.measurements.length<=16&&record.measurements.length>=14,`idle 2 min -> ${record.measurements.length} stored`);
- // Use: every reading is kept while water is present, then the 30 s afterwards, then thinning resumes.
- const use=DRAIN_DEPTHS.map((d,i)=>point(time+120000+i*500,d));
- const before=record.measurements.length;
- ({record}=feed(record,use));assert.equal(record.measurements.length-before,use.length,'no use reading is dropped');
- const tail=idle(time+120000+use.length*500,60);
- const after=record.measurements.length;({record}=feed(record,tail));
- const addedInTail=record.measurements.length-after;
- assert.ok(addedInTail>=54&&addedInTail<=66,`60 s tail: ${addedInTail} stored of 120 (about 30 s dense, then thinned)`);
- // a record without a calibration, and failed readings, are never thinned
- assert.equal(feed(monitoring({calibration:null}),idle(time,20)).record.measurements.length,40);
- const failed=Array.from({length:20},(_,i)=>({...point(time+i*500,0),sensor:{status:'timeout',distance_mm:null}}));
- assert.equal(feed(monitoring(),failed).record.measurements.length,20);
-});
-test('thinned readings are acknowledged without writing, and drain timing is unchanged by thinning',()=>{
- const start=feed(monitoring(),idle(time,40)).record;
- const next=appendMeasurements(start,[point(time+start.measurements.length*0+start.measurements.at(-1).timestamp.length*0+Date.parse(start.measurements.at(-1).timestamp)-time+2000,0)]);
- assert.equal(next.record,start,'same object: the handler skips the database write');assert.equal(next.duplicate,true);
- const events=readings=>monitoringEvents(feed(monitoring(),readings).record).filter(e=>e.recording_status==='finished');
- const day=[...idle(time,300),...DRAIN_DEPTHS.map((d,i)=>point(time+300000+i*500,d)),...idle(time+300000+DRAIN_DEPTHS.length*500,120)];
- const thinned=events(day);
- // Same readings with thinning disabled by removing the calibration snapshot until analysis.
- const dense=monitoringEvents({...feed(monitoring({calibration:null}),day).record,calibration:{empty_distance_mm:EMPTY}}).filter(e=>e.recording_status==='finished');
- assert.equal(thinned.length,1);assert.equal(dense.length,1);
- assert.deepEqual(thinned[0].result,dense[0].result);assert.equal(thinned[0].result.outcome,'completed');
-});
-test('monitoring keeps a rolling window instead of stopping; other recordings still stop at 5000',()=>{
- let record=monitoring();
- // Non-idle readings are always kept, so this fills the window quickly.
- const busy=Array.from({length:INGEST.monitoringWindow+300},(_,i)=>point(time+i*500,30+(i%7)));
- ({record}=feed(record,busy));
- assert.equal(record.measurements.length,INGEST.monitoringWindow);
- assert.equal(record.measurements.at(-1).reading_id,busy.at(-1).reading_id,'newest kept');
- assert.equal(record.measurements[0].reading_id,busy[300].reading_id,'oldest dropped first');
- const full=monitoring({record_type:'drainage',measurements:Array.from({length:5000},(_,i)=>point(time+i*500,30))});
- assert.throws(()=>appendMeasurements(full,[point(time+5000*500,30)]),e=>e.code==='record_full');
-});
 
 // ---- Supabase store: incremental reads
 function database({delta=true}={}){
@@ -83,12 +43,12 @@ test('a worker holding an older copy downloads only new readings, and the result
  assert.equal(db.traffic.full,1,'no further full-row downloads');assert.equal(db.traffic.delta,20);
  assert.ok(db.traffic.deltaBytes*20<fullBytes,`20 delta reads (${db.traffic.deltaBytes} B) cost under 5% of one full read (${fullBytes} B)`);
 });
-test('incremental reads follow a rolling window and carry changed status fields',async()=>{
+test('incremental reads carry changed status fields and never lose history',async()=>{
  const db=database(),writer=db.store(),reader=db.store(),id=randomUUID();
  await writer.insert(monitoring({record_id:id}));
  await write(writer,id,Array.from({length:20},(_,i)=>point(time+i*500,30)));await reader.get(id);
- for(let i=0;i<INGEST.monitoringWindow/20+3;i++){await write(writer,id,Array.from({length:20},(_,k)=>point(time+(20+i*20+k)*500,30+(k%4))));const seen=await reader.get(id);assert.deepEqual(seen.measurements,(await writer.get(id)).measurements);}
- assert.equal((await reader.get(id)).measurements.length,INGEST.monitoringWindow);
+ for(let i=0;i<10;i++){await write(writer,id,Array.from({length:20},(_,k)=>point(time+(20+i*20+k)*500,30+(k%4))));assert.deepEqual((await reader.get(id)).measurements,(await writer.get(id)).measurements);}
+ assert.equal((await reader.get(id)).measurements.length,220,'every reading is kept');
  const row=db.rows.find(r=>r.record_id===id);row.recording_status='finished';row.revision++;
  assert.equal((await reader.get(id)).recording_status,'finished','mutable fields come with the delta');
 });
@@ -103,20 +63,5 @@ test('anything unexpected falls back to the authoritative full read',async()=>{
  await writer.insert(monitoring({record_id:id}));await write(writer,id,[point(time+5000,30),point(time+5500,30)]);await reader.get(id);
  db.rows[0].measurements.push(point(time+1000,30));db.rows[0].measurements.sort((a,b)=>a.timestamp.localeCompare(b.timestamp));db.rows[0].revision++;
  const seen=await reader.get(id);assert.equal(seen.measurements.length,3);assert.equal(seen.measurements[0].timestamp,new Date(time+1000).toISOString());assert.equal(db.traffic.full,2);
- // 3. A legacy row longer than the window is read in full, not mis-merged.
- db=database();writer=db.store();reader=db.store();id=randomUUID();
- await writer.insert(monitoring({record_id:id,measurements:Array.from({length:2300},(_,i)=>point(time+i*500,30))}));await reader.get(id);
- db.rows[0].measurements.push(point(time+2300*500,30));db.rows[0].revision++;
- assert.equal((await reader.get(id)).measurements.length,2301);
 });
 
-test('an idle sink with a reading every 8 s still shows as connected; a quiet or busy one goes stale on time',async()=>{
- const {computedView}=await import('../src/records-domain.js');
- const at=(secondsAgo,depth)=>point(Date.now()-secondsAgo*1000,depth);
- const conn=(rec)=>computedView(rec).sensor_connection;
- assert.equal(conn(monitoring({measurements:[at(9,0)]})),'connected','idle, 9 s since the last stored reading');
- assert.equal(conn(monitoring({measurements:[at(20,0)]})),'stale','idle but silent far longer than the 8 s interval');
- assert.equal(conn(monitoring({measurements:[at(9,30)]})),'stale','during use readings arrive every 0.5 s, so 9 s is a real gap');
- assert.equal(conn(monitoring({measurements:[at(2,30)]})),'connected');
- assert.equal(conn(monitoring({calibration:null,measurements:[at(9,0)]})),'stale','no thinning before the empty reference exists');
-});
