@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { configFromEnv } from './config.js';
 import { createRecordStore } from './records-storage.js';
 import { buildAlerts, summarizeAlerts, SEVERITIES } from './alerts.js';
+import { appendTarget } from '../../supabase/functions/_shared/rollover.js';
 import { createStore as createAccessStore } from './storage.js';
 import { DEVICE_KEY_PREFIX, hashDeviceKey, newDeviceKey, supabaseUserVerifier } from './auth.js';
 import { ApiError, uuid, deviceId, validateDevice } from './validation.js';
@@ -185,9 +186,11 @@ export function createApp(config, store = createRecordStore(config), {
           await requireAccess(who, current.fixture_id, false, true);
           if (who.deviceId && current.data_source !== 'sensor') throw new ApiError(403, 'forbidden', 'Sensor keys cannot append simulation data');
           const points = validateMeasurements(await body(req));
-          const result = await mutate(id, previous => appendMeasurements(previous, points));
+          // A full monitoring recording continues in a new one; the acknowledgement keeps the board's own record_id.
+          const target = who.deviceId ? await appendTarget({ store, row: current, mutate, incoming: points.length }) : id;
+          const result = await mutate(target, previous => appendMeasurements(previous, points));
           // Return a compact acknowledgement; full records are retrieved separately.
-          return json(result.duplicate ? 200 : 201, { duplicate: result.duplicate, record_id: id, recording_status: result.record.recording_status, measurement_count: result.record.measurements.length, result: result.record.result, calibration: result.record.calibration });
+          return json(result.duplicate ? 200 : 201, { ...(target !== id ? { continued_in: target } : {}), duplicate: result.duplicate, record_id: id, recording_status: result.record.recording_status, measurement_count: result.record.measurements.length, result: result.record.result, calibration: result.record.calibration });
         }
         if (action === 'finish' && req.method === 'POST') {
           await requireAccess(who, (await get(id)).fixture_id, true);

@@ -111,5 +111,7 @@ export class SupabaseRecordStore {
     else { const old = this.cache.get(previous.record_id); if (old) {this.cacheBytes -= old.bytes; this.cache.delete(previous.record_id);} }
     return rows.length === 1;
   }
+  async saveDrainEvents(rows) { await this.request('drain_events?on_conflict=event_id', { method: 'POST', body: JSON.stringify(rows), headers: { Prefer: 'resolution=ignore-duplicates,return=representation' } }); }
+  async drainHistory(fixture, source, since, points) { return this.request('rpc/drain_history', { method: 'POST', body: JSON.stringify({ p_fixture: fixture, p_source: source, p_since: since, p_points: points }) }); }
   async close() { this.cache.clear(); this.cacheBytes=0; }
 }
