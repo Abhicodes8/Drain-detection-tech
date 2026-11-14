@@ -109,3 +109,14 @@ test('anything unexpected falls back to the authoritative full read',async()=>{
  db.rows[0].measurements.push(point(time+2300*500,30));db.rows[0].revision++;
  assert.equal((await reader.get(id)).measurements.length,2301);
 });
+
+test('an idle sink with a reading every 8 s still shows as connected; a quiet or busy one goes stale on time',async()=>{
+ const {computedView}=await import('../src/records-domain.js');
+ const at=(secondsAgo,depth)=>point(Date.now()-secondsAgo*1000,depth);
+ const conn=(rec)=>computedView(rec).sensor_connection;
+ assert.equal(conn(monitoring({measurements:[at(9,0)]})),'connected','idle, 9 s since the last stored reading');
+ assert.equal(conn(monitoring({measurements:[at(20,0)]})),'stale','idle but silent far longer than the 8 s interval');
+ assert.equal(conn(monitoring({measurements:[at(9,30)]})),'stale','during use readings arrive every 0.5 s, so 9 s is a real gap');
+ assert.equal(conn(monitoring({measurements:[at(2,30)]})),'connected');
+ assert.equal(conn(monitoring({calibration:null,measurements:[at(9,0)]})),'stale','no thinning before the empty reference exists');
+});

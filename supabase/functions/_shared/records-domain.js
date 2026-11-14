@@ -372,7 +372,9 @@ export function computedView(record, sample = null) {
   if (stale && sample === null && timeline.length) timeline.at(-1).seconds_remaining = null;
   const learning = record.record_type === 'calibration' ? learnCalibration(visible) : null;
   const latest = visible.at(-1);
-  const sensor_connection = !latest ? 'waiting' : latest.sensor.status !== 'ok' ? 'problem' : record.recording_status === 'recording' && (Date.now() - Date.parse(latest.timestamp) > SETTINGS.maxGap || Date.parse(latest.timestamp) > Date.now()) ? 'stale' : 'connected';
+  // An idle monitored sink stores one reading per INGEST.idleKeepMs, so its silence between readings is normal.
+  const connectionLimit = record.record_type === 'monitoring' && record.calibration && latest && idleReading(latest, record.calibration) ? INGEST.idleKeepMs + 7000 : SETTINGS.maxGap;
+  const sensor_connection = !latest ? 'waiting' : latest.sensor.status !== 'ok' ? 'problem' : record.recording_status === 'recording' && (Date.now() - Date.parse(latest.timestamp) > connectionLimit || Date.parse(latest.timestamp) > Date.now()) ? 'stale' : 'connected';
   return { drain_cycles: drainCycleSummaries(record), monitoring_limits: { slow_seconds: STATUS_SETTINGS.initialSlowSeconds, standing_water_seconds: STATUS_SETTINGS.initialTimeoutSeconds }, sensor_connection, setup_guidance: setupGuidance({...record, measurements:visible}), forecast: result, timeline, water_levels, sample_index: Math.max(0, position), sample_count: rows.length, first_measurement_at: first ?? null, elapsed_seconds: visible.length ? (Date.parse(visible.at(-1).timestamp) - Date.parse(first)) / 1000 : 0, stale, calibration_progress: learning?.progress ?? null, calibration_message: learning?.message ?? null };
 }
 // Applies points in order inside one atomic update. Points arriving after the
