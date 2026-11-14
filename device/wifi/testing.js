@@ -58,6 +58,13 @@ export async function api(base, token, path, body, fetcher = fetch) {
   if (!response.ok) throw Object.assign(Error(`API ${response.status}: ${value.error?.message || 'request failed'}`), { status: response.status });
   return value;
 }
+// cloud:configure [unit-id] [--owner-email name@example.com]. The unit id may sit before or after the option.
+export function parseConfigureArgs(args, fallback) {
+  const at = args.indexOf('--owner-email'), ownerEmail = at >= 0 ? args[at + 1] : null;
+  if (at >= 0 && (!ownerEmail || ownerEmail.startsWith('--'))) throw Error('Give the customer account e-mail after --owner-email.');
+  const fixture = args.find((a, i) => !a.startsWith('--') && (at < 0 || i !== at + 1)) || fallback;
+  return { fixture, ownerEmail };
+}
 // A recording saved before a migration or cleanup may no longer exist. That is not a failure: the caller starts a new one.
 export async function findPreviousRecording(request, base, token, recordId) {
   try { return (await request(base, token, `/records/${recordId}`)).record; }

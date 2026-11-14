@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { configFromEnv } from '../backend/src/config.js';
 import { SupabaseAccessStore } from '../supabase/functions/_shared/access-storage.js';
 import { hashDeviceKey } from '../backend/src/auth.js';
-import { api, settings, firmwareHeader, prepareRecord, checkTables, findPreviousRecording, findAuthUser, grantOwner } from '../device/wifi/testing.js';
+import { api, settings, firmwareHeader, prepareRecord, checkTables, findPreviousRecording, findAuthUser, grantOwner, parseConfigureArgs } from '../device/wifi/testing.js';
 import { selectTrustedRoot } from './cloud-tls.js';
 
 const root = new URL('../', import.meta.url), command = process.argv[2];
@@ -82,9 +82,7 @@ try {
       const wifi=parseEnv(wifiSource);
       const state=JSON.parse(await text('device/wifi/data/state.json')||'{"fixtures":{}}');
       // Usage: cloud:configure [unit-id] [--owner-email name@example.com]
-      const args=process.argv.slice(3),ownerAt=args.indexOf('--owner-email'),ownerEmail=ownerAt>=0?args[ownerAt+1]:null;
-      if(ownerAt>=0&&(!ownerEmail||ownerEmail.startsWith('--'))) throw Error('Give the customer account e-mail after --owner-email.');
-      const fixture=args.find((a,i)=>!a.startsWith('--')&&i!==ownerAt+1)||state.fixtures[state.current]?.fixture||'friend-sink';
+      const {fixture,ownerEmail}=parseConfigureArgs(process.argv.slice(3),state.fixtures[state.current]?.fixture||'friend-sink');
       const oldSlot=Object.keys(state.fixtures).findLast(key=>state.fixtures[key].fixture===fixture && state.fixtures[key].recordId);
       let old=oldSlot ? state.fixtures[oldSlot]:null,oldRemote=null;
       if(old) {

@@ -131,3 +131,14 @@ test('an installer can link a provisioned unit to a customer account by e-mail, 
   assert.equal(await grantOwner(store, 'DR-1', found.id), false, 'already an owner');
   assert.deepEqual({ ...rows[0], id: 'x' }, { id: 'x', device_id: 'DR-1', user_id: found.id, role: 'owner', created_at: '2026-11-14T00:00:00.000Z' });
 });
+
+test('cloud:configure reads the unit id with or without --owner-email, in either order', async () => {
+  const { parseConfigureArgs } = await import('../../device/wifi/testing.js');
+  assert.deepEqual(parseConfigureArgs(['DR-4851'], 'friend-sink'), { fixture: 'DR-4851', ownerEmail: null }, 'a lone unit id is not ignored');
+  assert.deepEqual(parseConfigureArgs(['DR-4851', '--owner-email', 'a@b.co'], 'x'), { fixture: 'DR-4851', ownerEmail: 'a@b.co' });
+  assert.deepEqual(parseConfigureArgs(['--owner-email', 'a@b.co', 'DR-4851'], 'x'), { fixture: 'DR-4851', ownerEmail: 'a@b.co' });
+  assert.deepEqual(parseConfigureArgs([], 'friend-sink'), { fixture: 'friend-sink', ownerEmail: null }, 'falls back only when nothing is given');
+  assert.deepEqual(parseConfigureArgs(['--owner-email', 'a@b.co'], 'saved'), { fixture: 'saved', ownerEmail: 'a@b.co' });
+  assert.throws(() => parseConfigureArgs(['DR-1', '--owner-email'], 'x'), /--owner-email/);
+  assert.throws(() => parseConfigureArgs(['--owner-email', '--other'], 'x'), /--owner-email/);
+});
